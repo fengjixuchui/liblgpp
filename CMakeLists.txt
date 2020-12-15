@@ -8,8 +8,14 @@ add_compile_options(-std=c++17 -stdlib=libc++ -Wall -Werror -O2 -g)
 
 file(GLOB_RECURSE src src/lgpp/*.cpp)
 
-add_executable(tests ${src} src/tests.cpp)
-target_include_directories(tests PUBLIC src/)
+add_executable(test ${src} src/test.cpp)
+target_include_directories(test PUBLIC src/)
+
+add_executable(bench ${src} src/bench.cpp)
+target_include_directories(bench PUBLIC src/)
+
+add_library(lgpp STATIC ${src})
+target_include_directories(lgpp PUBLIC src/)
 
 file(GLOB inc src/lgpp/*.hpp)
 install(FILES ${inc} DESTINATION include/lgpp)

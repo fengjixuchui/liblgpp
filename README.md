@@ -12,12 +12,12 @@ using namespace lgpp;
 
 int main() {
   VM vm;
-  Stack s;
+  Stack& s = get_stack(vm);
 
   emit<ops::Push>(vm, types::Int, 42);
   emit<ops::Stop>(vm);
 
-  eval(vm, 0, s);
+  eval(vm, 0);
   assert(pop(s, types::Int) == 42);
 
   return 0;
@@ -28,8 +28,6 @@ Custom interpreters are powerful and flexible tools that allow solving thorny pr
 
 The general idea is that distilling the fundamental building blocks in library form makes it possible to reduce needed effort to the point where more problems start to look like custom languages, and where it's affordable to try out new ideas and throw some away.
 
-The provided VM so far supports four [types](https://github.com/codr7/liblgpp/blob/main/src/lgpp/types.hpp) of values: coroutines, threads, stacks and integers; and the minimal set of [operations](https://github.com/codr7/liblgpp/tree/main/src/lgpp/ops) needed to write simple algorithms; but it is trivial to extend with additional types and operations.
-
 ### setup
 The project requires a C++17 compiler and CMake to build.
 
@@ -39,15 +37,20 @@ $ cd liblgpp
 $ mkdir build
 $ cd build
 $ cmake ..
-$ make
-$ ./tests
-fibrec: 762023us
-coro: 566445us
-thread: 1002093us
+$ make test
+$ ./test
 ```
 
 ### performance
-Single threaded performance is around 3-5 times slower than [Python3](https://github.com/codr7/liblgpp/blob/main/bench/fibrec.py). While I believe that's possible to improve significantly within the constraints imposed by the current design, in the end [computed goto](https://github.com/codr7/liblg) is going to outperform function calls for the [eval loop](https://github.com/codr7/liblgpp/blob/f5eba0b60a65da2c6c7eea60e42a752b1843999f/src/lgpp/vm.hpp#L33).
+Single threaded performance is around 3 times slower than [Python3](https://github.com/codr7/liblgpp/blob/main/bench/fibrec.py). While I believe that's possible to improve significantly within the constraints imposed by the current design, in the end [computed goto](https://github.com/codr7/liblg) is going to outperform function calls for the [eval loop](https://github.com/codr7/liblgpp/blob/f5eba0b60a65da2c6c7eea60e42a752b1843999f/src/lgpp/vm.hpp#L33).
+
+```
+$ cd build
+$ make bench
+$ ./bench
+fibrec: 645432us
+coro: 384625us
+```
 
 ```
 $ cd bench
@@ -76,7 +79,7 @@ emit<ops::Push>(vm, types::Int, 2);
 emit<ops::Push>(vm, types::Int, 3);
 emit<ops::Cp>(vm, 2, 2);
 emit<ops::Stop>(vm);
-eval(vm, 0, s);
+eval(vm, 0);
   
 assert(s.size() == 5);
 assert(pop(s, types::Int) == 2);
@@ -94,7 +97,7 @@ emit<ops::Push>(vm, types::Int, 2);
 emit<ops::Push>(vm, types::Int, 3);
 emit<ops::Drop>(vm, 1, 2);
 emit<ops::Stop>(vm);
-eval(vm, 0, s); 
+eval(vm, 0); 
 
 assert(s.size() == 1);
 assert(pop(s, types::Int) == 1);
@@ -109,7 +112,7 @@ emit<ops::Push>(vm, types::Int, 2);
 emit<ops::Swap>(vm);
 emit<ops::Stop>(vm);
 
-eval(vm, 0, s);
+eval(vm, 0);
 assert(s.size() == 2);
 assert(pop(s, types::Int) == 1);
 assert(pop(s, types::Int) == 2);
@@ -125,7 +128,7 @@ emit<ops::Push>(vm, types::Stack, v);
 emit<ops::Splat>(vm);
 emit<ops::Stop>(vm);
 
-eval(vm, 0, s); 
+eval(vm, 0); 
 assert(s.size() == 3);
 assert(pop(s, types::Int) == 3);
 assert(pop(s, types::Int) == 2);
@@ -142,13 +145,98 @@ emit<ops::Push>(vm, types::Int, 3);
 emit<ops::Squash>(vm);
 emit<ops::Stop>(vm);
 
-eval(vm, 0, s); 
+eval(vm, 0); 
 assert(s.size() == 1);
 s = pop(s, types::Stack);
 assert(s.size() == 3);
 assert(pop(s, types::Int) == 3);
 assert(pop(s, types::Int) == 2);
 assert(pop(s, types::Int) == 1);
+```
+
+### types
+Types are passed by reference. The provided type hierarchy contains the following types, but new ones are trivial to add:
+
+#### Nil
+Represents nothing and has one value of type `nullptr_t`.
+
+#### Meta
+The type of all types with values of type `Trait *`.
+
+#### Num
+The type of all numbers.
+
+#### Seq
+The type of all sequences.
+
+#### Int
+Plain old ints.
+
+#### Pair
+Pairs are implemented as `pair<Val, Val>` and passed by value.
+
+```
+emit<ops::Push>(vm, types::Int, 1);
+emit<ops::Push>(vm, types::Int, 2);
+emit<ops::Zip>(vm);
+emit<ops::Stop>(vm);
+
+eval(vm, 0);
+assert(s.size() == 1);
+auto v = pop(s);
+assert(&type_of(v) == &types::Pair);
+auto p = v.as(types::Pair);
+assert(p.first.as(types::Int) == 1 && p.second.as(types::Int) == 2);
+```
+
+```
+Pair p({types::Int, 1}, {types::Int, 2});
+  
+emit<ops::Push>(vm, types::Pair, p);
+emit<ops::Unzip>(vm);
+emit<ops::Stop>(vm);
+
+eval(vm, 0);
+assert(s.size() == 2);
+assert(pop(s, types::Int) == 2);
+assert(pop(s, types::Int) == 1);
+```
+
+#### Stack
+Stacks are implemented as `vector<Val>`.
+
+#### Coro
+Coroutines (see below).
+
+#### Thread
+Threads (see below).
+
+`TypeOf`replaces the top stack value with its type.
+
+```
+emit<ops::Push>(vm, types::Int, 1);
+emit<ops::TypeOf>(vm);
+emit<ops::Cp>(vm);
+emit<ops::TypeOf>(vm);
+emit<ops::Stop>(vm);
+eval(vm, 0);
+  
+assert(s.size() == 2);
+assert(pop(s, types::Meta) == &types::Meta);
+assert(pop(s, types::Meta) == &types::Int);
+```
+
+`Isa` replaces the top two stack values with their common root if they are related, otherwise `Nil`/`nullptr`.
+
+```
+emit<ops::Push>(vm, types::Meta, &types::Int);
+emit<ops::Push>(vm, types::Meta, &types::Num);
+emit<ops::Isa>(vm);
+emit<ops::Stop>(vm);
+eval(vm, 0);
+  
+assert(s.size() == 1);
+assert(pop(s, types::Meta) == &types::Num);
 ```
 
 ### coroutines
@@ -169,7 +257,7 @@ emit<ops::Resume>(vm);
 emit<ops::Drop>(vm);
 emit<ops::Stop>(vm);
   
-eval(vm, start_pc, s);
+eval(vm, start_pc);
 assert(pop(s, types::Int) == 3);
 assert(pop(s, types::Int) == 2);
 assert(pop(s, types::Int) == 1);
@@ -189,6 +277,6 @@ emit<ops::StartThread>(vm, target);
 emit<ops::Join>(vm);
 emit<ops::Stop>(vm);
   
-eval(vm, start_pc, s);
+eval(vm, start_pc);
 assert(pop(s, types::Stack).size() == 0);
 ```

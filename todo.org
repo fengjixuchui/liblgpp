@@ -1,10 +1,33 @@
 * ---1---
+* add stack literals to alang
+** use parse_group
+* add Prim type function<void (thread, stack>>
+* add stack op bindings (cp/drop/swap)
+* add call binding
+** add optional op label pickup from stack
+* add goto binding
+** add optional op label pickup from stack
+* add say binding
+* add label? binding
+* add typofs binding
+** add Typofs op
+*** rename TypeOf to Typof
+* add String type/parser
+* add str binding
+* add label: macro
+** add Label op to store Label
+* add Ref (&) support
+* add map literals
+* ---2---
+* finish support for hex/bin notation in parse_int
 * add Chan
 ** add Chan type
 ** use deque
-* add Pair type
-** add Zip/Unzip ops
-*** add offs arg
+** finish thread test
+*** prod/cons/queue
+* add Op encode/decode
+** add Val encode/decode type methods
+* add load(vm, path)/store(vm, path)
 * add Iter type
 ** add types::iter method
 ** add Iter type
@@ -12,35 +35,30 @@
 ** add Next op
 *** peek iter && push next value or NIL
 ** add Stack iter
-* add Meta type
-** add TypeOf op
-*** push type of value
-** store pointer to type
-** add readme section
-* add type hierarchy support
-** add Isa op
-** add Num type
 * add eval trace support
-* add exception types
-** runtime_error
 * add tasks
 ** use Pause to switch
 ** separate stacks
 ** add StartTask op
 ** add Snooze op
-* add Def/Get ops
-** add op compile stage
-*** add env type map<string, Val>
-*** add env arg
-* add parser support
-** add Tok type
-*** add Pos
-* add repl template
-* add Val dump method
-** implement for existing typs
-** add Dump op
-*** dump val on stack to specified stream
-* add PushStack op
-** push copy of current stack
 * ---N---
-** move methods out of Thread/VM
+
+label: fib
+  if (< 2) ret
+  dec cp call &fib
+  swap dec call &fib +
+  ret
+
+20 call &fib 
+stop
+
+
+label: foo-Int
+  say "Int"
+  ret
+
+label: foo
+  goto (label? (str "foo-" (typofs 0)))
+
+42 call &foo
+"bar" call &foo

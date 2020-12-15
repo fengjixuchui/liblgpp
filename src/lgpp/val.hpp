@@ -6,13 +6,20 @@
 namespace lgpp {  
   using namespace std;
   
+  struct Trait;
+  
   template <typename T>
   struct Type;
 
   struct Val;
-  
+
+  Trait& get_type(const Val &val);
+
   namespace types {
-    
+
+    template <typename T>
+    void dump(Type<T>& type, const T& imp, ostream& out);
+
     template <typename T>
     bool eq(Type<T>& type, const T& x, Val y);
 
@@ -33,6 +40,10 @@ namespace lgpp {
   struct Val {
     struct Imp {
       virtual ~Imp() = default;
+
+      virtual Trait& type() const = 0;
+
+      virtual void dump(ostream& out) const = 0;
       
       virtual bool eq(Val y) const = 0;
       virtual bool gt(Val y) const = 0;
@@ -44,16 +55,19 @@ namespace lgpp {
 
     template <typename T>
     struct TImp: Imp {
-      TImp(Type<T>& type, T data): type(type), data(move(data)) {}
+      TImp(Type<T>& type, T data): _type(type), data(move(data)) {}
 
-      bool eq(Val y) const override { return types::eq(type, data, y); }
-      bool gt(Val y) const override { return types::gt(type, data, y); }
-      bool lt(Val y) const override { return types::lt(type, data, y); }
+      Trait& type() const override { return _type; }
 
-      Val add(Val y) const override { return types::add(type, data, y); }
-      Val sub(Val y) const override { return types::sub(type, data, y); }
+      void dump(ostream& out) const override { types::dump(_type, data, out); }
+      bool eq(Val y) const override { return types::eq(_type, data, y); }
+      bool gt(Val y) const override { return types::gt(_type, data, y); }
+      bool lt(Val y) const override { return types::lt(_type, data, y); }
 
-      Type<T>& type;
+      Val add(Val y) const override { return types::add(_type, data, y); }
+      Val sub(Val y) const override { return types::sub(_type, data, y); }
+
+      Type<T>& _type;
       T data;
     };
 
@@ -68,15 +82,19 @@ namespace lgpp {
     
     template <typename T>
     const T& as(Type<T>& type) const {
-      auto& timp = dynamic_cast<const TImp<T>&>(*imp);
-      if (&timp.type != &type) { throw runtime_error("Wrong type"); }
-      return timp.data;
+      if (&get_type(*this) != &type) { throw runtime_error("Wrong type"); }
+      return dynamic_cast<const TImp<T>&>(*imp).data;
     }
     
     shared_ptr<const Imp> imp;
   };
 
+  inline Trait& get_type(const Val &val) { return val.imp->type(); }
+  
   namespace types {
+    template <typename T>
+    void dump(Type<T>& type, const T& imp, ostream& out) { throw runtime_error("Not implemented"); }
+
     template <typename T>
     bool eq(Type<T> &type, const T& x, Val y) { return x == y.as(type); }
 
@@ -102,7 +120,11 @@ namespace lgpp {
   inline Val operator+(const Val& x, const Val& y) { return x.imp->add(y); }
 
   inline Val operator-(const Val& x, const Val& y) { return x.imp->sub(y); }
-  
+
+  inline ostream &operator<<(ostream &out, const Val &v) {
+    v.imp->dump(out);
+    return out;
+  }
 }
 
 #endif
