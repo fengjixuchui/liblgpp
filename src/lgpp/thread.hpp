@@ -2,13 +2,16 @@
 #define LGPP_THREAD_HPP
 
 #include <deque>
+#include <list>
 #include <optional>
 #include <thread>
 
-#include "coro.hpp"
-#include "op.hpp"
-#include "ret.hpp"
-#include "stack.hpp"
+#include "lgpp/call.hpp"
+#include "lgpp/coro.hpp"
+#include "lgpp/error.hpp"
+#include "lgpp/label.hpp"
+#include "lgpp/op.hpp"
+#include "lgpp/stack.hpp"
 
 namespace lgpp {
   
@@ -30,19 +33,26 @@ namespace lgpp {
     }
     
     VM &vm;
+    list<Label> labels;
     vector<Op> ops;
-    vector<Ret> rets;
+    vector<Call> calls;
     deque<Stack> stacks;
     thread imp;
     const Id id;
     vector<Coro> coros;
   };
 
-  template <typename T, typename...Args>
-  const T& emit(Thread& thread, Args&&...args) {
-    return thread.ops.emplace_back(thread.ops.size(), T(forward<Args>(args)...)).template as<T>();
-  }
+  template <typename...Args>
+  Label &push_label(Thread &thread, Args &&...args) { return thread.labels.emplace_back(forward<Args>(args)...); }
   
+  template <typename T, typename...Args>
+  const T& emit(Thread& thread, Pos pos, Args&&...args) {
+    return thread.ops.emplace_back(thread.ops.size(), pos, T(forward<Args>(args)...)).template as<T>();
+  }
+
+  template <typename T, typename...Args>
+  const T& emit(Thread& thread, Args&&...args) { return emit<T>(thread, Pos("n/a"), forward<Args>(args)...); }
+
   inline PC emit_pc(const Thread& t) { return t.ops.size(); }
 
   inline const Op& eval(Thread& thread, const Op& start_op) {
@@ -61,14 +71,22 @@ namespace lgpp {
     thread.coros.pop_back();
     return c;
   }
+
+  template <typename...Args>
+  void push_call(Thread& thread, Args&&...args) { thread.calls.emplace_back(forward<Args>(args)...); }
   
-  inline void push_ret(Thread& thread, PC pc, Ret::Opts opts = Ret::Opts::NONE) { thread.rets.emplace_back(pc, opts); }
-  
-  inline Ret pop_ret(Thread& thread) {
-    if (thread.rets.empty()) { throw runtime_error("Ret stack is empty"); }
-    auto r = thread.rets.back();
-    thread.rets.pop_back();
-    return r;
+  inline Call pop_call(Thread& thread) {
+    if (thread.calls.empty()) { throw runtime_error("Call stack is empty"); }
+    auto c = thread.calls.back();
+    thread.calls.pop_back();
+    return c;
+  }
+
+  inline PC resume(const Coro &coro, Thread& thread, PC return_pc, Pos pos) {
+    if (coro.done) { throw ERun(pos, "Coro is done"); }
+    push_coro(thread, coro);
+    push_call(thread, return_pc, Call::Opts::CORO);
+    return coro.pc;
   }
 
   inline Stack& get_stack(Thread& thread) {

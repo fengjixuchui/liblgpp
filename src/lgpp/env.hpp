@@ -9,15 +9,26 @@
 namespace lgpp {
 
   using namespace std;
+
+  struct VM;
   
-  using Env = map<string, Val>;
+  struct Env {
+    Env(VM &vm): vm(vm) {}
+    
+    VM &vm;
+    map<string, Val> bindings;
+  };
 
   template <typename...Args>
-  Env& set(Env&  env, string id, Args&&...args) {
-    env.insert(make_pair(id, Val(forward<Args>(args)...)));
-    return env;
+  void let(Env& env, string id, Args&&...args) {
+    env.bindings.insert(make_pair(id, Val(forward<Args>(args)...)));
   }
-  
+
+  inline optional<Val> find(Env& env, const string& id) {
+    auto found = env.bindings.find(id);
+    if (found == env.bindings.end()) { return nullopt; }
+    return found->second;
+  }
 }
 
 #endif

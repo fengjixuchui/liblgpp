@@ -1,56 +1,52 @@
 #ifndef LGPP_PARSER_HPP
 #define LGPP_PARSER_HPP
 
-#include <deque>
 #include <optional>
 #include <sstream>
 
 #include "lgpp/error.hpp"
-#include "lgpp/tok.hpp"
-#include "lgpp/toks.hpp"
-#include "lgpp/types.hpp"
+#include "lgpp/toks/group.hpp"
+#include "lgpp/toks/id.hpp"
+#include "lgpp/toks/lit.hpp"
 
 namespace lgpp {
   using namespace std;
 
   struct Parser;
   
-  size_t parse_id(Parser&, char, istream&);
-  size_t parse_int(Parser&, char, istream&);
+  bool parse_id(Parser&, char, istream&);
+  bool parse_int(Parser&, char, istream&);
 
   struct Parser {
-    using Alt = function<size_t (Parser&, char, istream&)>;
+    using Alt = function<bool (Parser&, char, istream&)>;
     
-    Parser(string file): pos(move(file)) {
-      alts.push_back(&parse_int);
-      alts.push_back(&parse_id);
-    }
-    
+    Parser(VM& vm, string file): vm(vm), pos(move(file)) {}
+
+    VM& vm;
     Pos pos;
-    deque<Tok> toks;
+    Toque toks;
     deque<Alt> alts;
   };
 
   template <typename T, typename...Args>
-  const Tok& push(Parser& parser, Pos pos, Args&&...args) {
-    return parser.toks.emplace_back(pos, T(forward<Args>(args)...));
-  }
+  const Tok& push(Parser& parser, Pos pos, Args&&...args) { return push<T>(parser.toks, pos, forward<Args>(args)...); }
   
-  inline optional<Tok> peek(const Parser& parser) {
-    return parser.toks.empty() ? nullopt : make_optional(parser.toks.front());
-  }
+  inline optional<Tok> peek(const Parser& parser) { return peek(parser.toks); }
 
-  inline Tok pop(Parser& parser) {
-    Tok t = parser.toks.front();
-    parser.toks.pop_front();
-    return t;
-  }
+  inline Tok pop(Parser& parser) { return pop(parser.toks); }
+
+  inline Tok pop_back(Parser& parser) { return pop_back(parser.toks); }
 
   inline size_t skip(Parser &parser, istream &in) {
-    int n = 0;
+    size_t n = 0;
     char c = 0;
     
-    while (in.get(c) && isspace(c)) {
+    while (in.get(c)) {
+      if (!isspace(c)) {
+	in.unget();
+	break;
+      }
+	  
       switch (c) {
       case ' ':
       case '\t':
@@ -61,15 +57,15 @@ namespace lgpp {
         parser.pos.row++;
         parser.pos.col = Pos::START_COL;
 	n++;
+	break;
       };
     }
     
-    if (!in.eof()) { in.unget(); }
     return n;
   }
-
-  inline size_t parse_id(Parser& parser, char c, istream& in) {
-    if (!isgraph(c)) { return 0; }
+  
+  inline bool parse_id_pred(Parser& parser, char c, istream& in, function<bool (char c)> pred) {
+    if (!isgraph(c)) { return false; }
     auto p(parser.pos);
     stringstream buf;
 
@@ -77,18 +73,22 @@ namespace lgpp {
       buf << c;
       parser.pos.col++;
 
-      if (!in.get(c) || !isgraph(c)) {
+      if (!in.get(c) || !isgraph(c) || (pred && !pred(c))) {
         in.unget();
         break;
       }
     }
 
-    if (!buf.tellp()) { return 0; }
+    if (!buf.tellp()) { return false; }
     push<toks::Id>(parser, p, buf.str());
-    return 1;
+    return true;
   }
 
-  int parse_int(Parser &parser, char c, istream &in, int base) {
+  inline bool parse_id(Parser& parser, char c, istream& in) {
+    return parse_id_pred(parser, c, in, nullptr);
+  }
+
+  int parse_int_base(Parser &parser, char c, istream &in, int base) {
     int v(0);
     
     static map<char, int8_t> char_vals = {
@@ -111,65 +111,59 @@ namespace lgpp {
     return v;
   }
   
-  inline size_t parse_int(Parser& parser, char c, istream& in) {
-    if (!isdigit(c)) { return 0; }
+  inline bool parse_int(Parser& parser, char c, istream& in) {
+    if (!isdigit(c)) { return false; }
     auto p = parser.pos;
-    push<toks::Lit>(parser, p, types::Int, parse_int(parser, c, in, 10));
-    return 1;
+    push<toks::Lit>(parser, p, parser.vm.Int, parse_int_base(parser, c, in, 10));
+    return true;
   }
   
-  inline size_t parse_tok(Parser& parser, istream& in) {
+  inline bool parse_tok(Parser& parser, istream& in) {
     if (char c = 0; in.get(c)) {
       for (auto &a: parser.alts) {
-	auto n = a(parser, c, in);
-	if (n) { return n; }
+	if (a(parser, c, in)) { return true; }
       }
 
       throw EParse(parser.pos, "Unexpected input: '", c, "'");
     }
 
-    return 0;
+    return false;
   }
 
   template <typename T = toks::Group>
   Parser::Alt parse_group(char beg, char end) {
-    return [beg, end](Parser& parser, char c, istream& in) -> size_t {
-      if (c != beg) { return 0; }
+    return [beg, end](Parser& parser, char c, istream& in) -> bool {
+      if (c != beg) { return false; }
       Pos p = parser.pos;
       vector<Tok> toks;
       auto i = parser.toks.size();
 
       for(;;) {
-	if (!in.get(c)) { throw EParse(parser.pos, "Missing end"); }
+	skip(parser, in);
+	if (!in.get(c)) { throw EParse(parser.pos, "Missing end of expression: ", end); }
 	if (c == end) { break; }
 	in.unget();
-	if (!parse_tok(parser, in)) { break; }
-	skip(parser, in);
+	if (!parse_tok(parser, in)) { throw EParse(parser.pos, "Invalid token"); }
       }
 
       move(parser.toks.begin() + i, parser.toks.end(), back_inserter(toks));
       parser.toks.erase(parser.toks.begin() + i, parser.toks.end());
       push<T>(parser, p, toks);
-      return 1;
+      return true;
     };
   }
 
-  inline size_t parse(Parser& parser, string in) {
-    size_t n = 0;
+  inline void parse(Parser& parser, string in) {
     istringstream is(in);
     
     for (;;) {
       skip(parser, is);
-      auto pn = parse_tok(parser, is);
-      if (!pn) { break; }
-      n += pn;
+      if (!parse_tok(parser, is)) { break; }
     }
-    
-    return n;
   }
 
   inline void compile(Parser& parser, Thread& out, Env& env) {
-    while (!parser.toks.empty()) { compile(pop(parser), parser, out, env); }
+    while (!parser.toks.empty()) { compile(pop(parser), parser.toks, out, env); }
   }
 }
 

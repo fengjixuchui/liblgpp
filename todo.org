@@ -1,33 +1,22 @@
 * ---1---
-* add stack literals to alang
-** use parse_group
-* add Prim type function<void (thread, stack>>
-* add stack op bindings (cp/drop/swap)
-* add call binding
-** add optional op label pickup from stack
-* add goto binding
-** add optional op label pickup from stack
-* add say binding
-* add label? binding
-* add typofs binding
-** add Typofs op
-*** rename TypeOf to Typof
+* fib
+** add rec macro
+*** compile all args
+*** go to label
+* add bench macro
+** run 1+3
+** print runtime
+* ---2---
+* emit +/- as inc/dec if lit arg
+* add file loading to alang
+** load all args
 * add String type/parser
 * add str binding
-* add label: macro
-** add Label op to store Label
-* add Ref (&) support
-* add map literals
-* ---2---
-* finish support for hex/bin notation in parse_int
 * add Chan
 ** add Chan type
 ** use deque
 ** finish thread test
 *** prod/cons/queue
-* add Op encode/decode
-** add Val encode/decode type methods
-* add load(vm, path)/store(vm, path)
 * add Iter type
 ** add types::iter method
 ** add Iter type
@@ -35,30 +24,19 @@
 ** add Next op
 *** peek iter && push next value or NIL
 ** add Stack iter
-* add eval trace support
+* add trace support
+* ---N---
 * add tasks
 ** use Pause to switch
 ** separate stacks
 ** add StartTask op
 ** add Snooze op
-* ---N---
 
-label: fib
-  if (< 2) ret
-  dec cp call &fib
-  swap dec call &fib +
-  ret
+let fib sub(
+  if (.< 2) _ (
+    .- 1 cp rec()
+    .+ (sw .- 1 rec())
+  )
+)
 
-20 call &fib 
-stop
-
-
-label: foo-Int
-  say "Int"
-  ret
-
-label: foo
-  goto (label? (str "foo-" (typofs 0)))
-
-42 call &foo
-"bar" call &foo
+fib(20)
